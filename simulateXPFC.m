@@ -58,6 +58,16 @@ disp('[[[[[ Initializing simulation fields... ]]]]]');
 
 fields.n_k = fftn(fields.n);
 fields.c_k = fftn(fields.c);
+if isfield(operators,'spectralMask')
+    discarded = fields.n_k.*(1-operators.spectralMask);
+    fraction = gather(sum(abs(discarded(:)).^2) ...
+        /max(sum(abs(fields.n_k(:)).^2),eps));
+    fprintf('Initial density spectral power removed at Nyquist: %.3e\n',fraction);
+    fields.n_k = fields.n_k.*operators.spectralMask;
+    fields.c_k = fields.c_k.*operators.spectralMask;
+    fields.n = real(ifftn(fields.n_k));
+    fields.c = real(ifftn(fields.c_k));
+end
 % Equal density histories initialize zero discrete density velocity.
 fields.n_k_prev = fields.n_k;
 
@@ -77,17 +87,40 @@ trackGB = isfield(params,'trackGB') && params.trackGB;
 gbRows = zeros(0,8);
 lastWrapped = []; lastUnwrapped = [];
 if trackGB
-    [pos,~,~] = measureSigma5(fields,params);
+    [pos,profile,indicator,localGB] = measureSigma5(fields,params);
+    status.localGB = localGB;
+    status.localGBx = ((0:params.Nx-1)'-floor(params.Nx/2))*params.dx;
+    if params.dispOutput
+        figure(4);
+        for boundary=1:2
+            subplot(2,1,boundary);
+            plot(status.localGBx,localGB(:,boundary));
+            xlabel('Material X'); ylabel(sprintf('GB %d: Y(X)',boundary));
+        end
+        drawnow;
+    end
     if any(~isfinite(pos)), error('Initial Sigma5 boundaries not resolved.'); end
     initialPositions = pos;
     lastWrapped = pos; lastUnwrapped = pos;
     gbRows = [0 params.gamma pos 0 0 NaN NaN];
+end
+fieldRows = diagnosticRow(fields,params,0);
+if isfield(params,'saveFields') && params.saveFields
+    saveState(fields,params,status);
 end
 %% Evolve fields
 tic;
 disp('[[[[[ Starting main simulation loop... ]]]]]');
 for step=1:params.maxStep
     status.timestep = step;
+    if isfield(params,'freezeCompositionSteps') ...
+            && step == params.freezeCompositionSteps+1
+        fprintf('Composition released at step %d (time %.6g).\n',step,(step-1)*params.dt);
+    end
+    if isfield(params,'shear') && params.shear.enabled ...
+            && step == params.shear.relaxSteps+1
+        fprintf('Starting shear stage at step %d.\n',step);
+    end
     % Piecewise affine shear of the periodic cell; fields stay on material grid.
     if isfield(params,'shear') && params.shear.enabled ...
             && step > params.shear.relaxSteps ...
@@ -118,7 +151,9 @@ for step=1:params.maxStep
             error(['ERROR: OBTAINED C FIELD OUT OF BOUNDS BY STEP ' num2str(step)])
         end
         if trackGB
-            [pos,profile,indicator] = measureSigma5(fields,params);
+            [pos,profile,indicator,localGB] = measureSigma5(fields,params);
+            status.localGB = localGB;
+            status.localGBx = ((0:params.Nx-1)'-floor(params.Nx/2))*params.dx;
             displacement = [NaN NaN]; velocity = [NaN NaN];
             if all(isfinite(pos)) && ~isempty(lastWrapped)
                 Ly = params.Ny*params.dy;
@@ -147,7 +182,7 @@ for step=1:params.maxStep
                 {'time','gamma','y1','y2','displacement1','displacement2', ...
                  'velocity1','velocity2','speed1','speed2'});
             writetable(T,fullfile(params.output_dir,'gb_tracking.csv'));
-            save(fullfile(params.output_dir,'gb_tracking.mat'),'T','profile','params');
+            save(fullfile(params.output_dir,'gb_tracking.mat'),'T','profile','localGB','params');
             fprintf('GB displacements: [%g, %g]; gamma=%g\n', displacement,params.gamma);
             if params.dispOutput
                 figure(3);
@@ -159,17 +194,23 @@ for step=1:params.maxStep
                 plot(T.time,T.speed1,T.time,T.speed2);
                 xlabel('Time'); ylabel('|GB velocity|');
                 legend('GB 1','GB 2'); drawnow;
+                figure(4);
+                for boundary = 1:2
+                    subplot(2,1,boundary);
+                    plot(status.localGBx,localGB(:,boundary));
+                    xlabel('Material X'); ylabel(sprintf('GB %d: Y(X)',boundary));
+                end
+                drawnow;
             end
         end
-        % Lossless full-grid snapshot, including density history for restarts.
-        if isfield(params, 'saveFields') && params.saveFields
-            snapshot = struct();
-            names = fieldnames(fields);
-            for j = 1:numel(names)
-                snapshot.(names{j}) = gather(fields.(names{j}));
-            end
-            save(fullfile(params.output_dir, sprintf('s%d_step%07d.mat', ...
-                params.setNum, step)), 'snapshot', 'params', 'status', '-v7.3');
+        fieldRows(end+1,:) = diagnosticRow(fields,params,step);
+        fieldTable = array2table(fieldRows,'VariableNames', ...
+            {'time','gamma','meanN','meanC','minN','maxN','minC','maxC','stdC'});
+        writetable(fieldTable,fullfile(params.output_dir,'field_diagnostics.csv'));
+        fprintf('Composition: mean=%.8g, range=[%.6g, %.6g], std=%.4g\n', ...
+            fieldRows(end,4),fieldRows(end,7:9));
+        if isfield(params,'saveFields') && params.saveFields
+            saveState(fields,params,status);
         end
         % Save n and c fields to movies
         if params.makeMovie
@@ -224,4 +265,25 @@ if params.makeMovie
 end
 
 disp('[[[[[ Done. ]]]]]');
+end
+
+
+function row = diagnosticRow(fields,params,step)
+gamma = 0;
+if isfield(params,'gamma'), gamma = params.gamma; end
+row = [step*params.dt gamma gather(mean(fields.n(:))) ...
+    gather(mean(fields.c(:))) gather(min(fields.n(:))) ...
+    gather(max(fields.n(:))) gather(min(fields.c(:))) ...
+    gather(max(fields.c(:))) gather(std(fields.c(:)))];
+end
+
+function saveState(fields,params,status)
+% Preserve doubles and the density history without image downsampling.
+snapshot = struct();
+names = fieldnames(fields);
+for j = 1:numel(names)
+    snapshot.(names{j}) = gather(fields.(names{j}));
+end
+save(fullfile(params.output_dir,sprintf('s%d_step%07d.mat', ...
+    params.setNum,status.timestep)), 'snapshot','params','status','-v7.3');
 end
