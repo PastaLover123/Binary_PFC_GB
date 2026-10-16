@@ -2,6 +2,10 @@ function [ fields, status ] = stepXPFC( params, fields, operators, status )
 % stepXPFC calculates the non-linear operators for the evolution of n and c
 % fields and the performs a single time-step.
 
+% A genuinely frozen composition: skip its deterministic and stochastic update.
+freezeC = isfield(params,'freezeCompositionSteps') ...
+    && status.timestep <= params.freezeCompositionSteps;
+status.compositionFrozen = freezeC;
 %% Helper functions for non-linear operators
 % Calculate polynomial interpolation functions for the correlation
 % function and its derivative with respect to c.
@@ -28,7 +32,7 @@ if params.noiseApp_n == true
     noise_n = (Y - circshift(Y,[-1,0]) + X - circshift(X,[0,-1]))/params.dx; % This scheme assumes dx=dy
     noise_n_k = operators.filter_n.*fftn(noise_n);
 end
-if params.noiseApp_c == true
+if params.noiseApp_c == true && ~freezeC
     X = params.NA_c*randn(params.Nx,params.Ny,"gpuArray");
     Y = params.NA_c*randn(params.Nx,params.Ny,"gpuArray");
     noise_c = (Y - circshift(Y,[-1,0]) + X - circshift(X,[0,-1]))/params.dx;
@@ -36,10 +40,14 @@ if params.noiseApp_c == true
 end
 %% Non-linear terms
 NL_n = params.M_n*operators.k2.*(fftn(params.eta*fields.n.^2/2-params.chi*fields.n.^3/3 - F_mix + C_2n  ) ) + noise_n_k;
-NL_c = -params.M_c*operators.k2.*fftn(-0.5*fields.n.*C_2_cn + (1 + fields.n).*F_mix_c) + noise_c_k;
+if ~freezeC
+    NL_c = -params.M_c*operators.k2.*fftn(-0.5*fields.n.*C_2_cn + (1 + fields.n).*F_mix_c) + noise_c_k;
+end
 
 %% Update step
-fields.c_k = (fields.c_k+params.dt*NL_c)./(1-params.dt*operators.L_c);
+if ~freezeC
+    fields.c_k = (fields.c_k+params.dt*NL_c)./(1-params.dt*operators.L_c);
+end
 % Backward second difference for n_tt and backward difference for damping.
 % n_k_prev must be preserved with n_k when saving a restart.
 n_k_old = fields.n_k;
@@ -47,7 +55,12 @@ fields.n_k = ((2 + params.beta_n*params.dt)*n_k_old ...
     - fields.n_k_prev + params.dt^2*NL_n) ...
     ./ (1 + params.beta_n*params.dt - params.dt^2*operators.L_n);
 fields.n_k_prev = n_k_old;
+if isfield(operators,'spectralMask')
+    fields.n_k = fields.n_k.*operators.spectralMask;
+    fields.n_k_prev = fields.n_k_prev.*operators.spectralMask;
+    if ~freezeC, fields.c_k = fields.c_k.*operators.spectralMask; end
+end
 % Switch n and c back to realspace
 fields.n = real(ifftn(fields.n_k));
-fields.c = real(ifftn(fields.c_k));
+if ~freezeC, fields.c = real(ifftn(fields.c_k)); end
 end
