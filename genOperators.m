@@ -14,10 +14,15 @@ ky = ifftshift(dky*gpuArray(-floor(params.Ny/2):ceil(params.Ny/2)-1));
 % Material coordinates: x=X+gamma*Y, y=Y; k=F^(-T)*K.
 gamma = 0;
 if isfield(params, 'gamma'), gamma = params.gamma; end
-if gamma ~= 0 && (mod(params.Nx,2)==0 || mod(params.Ny,2)==0)
-    error('Shear requires odd grid dimensions to avoid Nyquist ambiguity.');
-end
 operators.k2 = kX.^2+(kY-gamma*kX).^2;
+% Keep the same projected subspace from initialization onward, including gamma=0.
+% Removing Nyquist planes avoids their ambiguous signed wavevector under shear.
+operators.spectralMask = ones(size(operators.k2), 'like', operators.k2);
+usesShear = gamma ~= 0 || (isfield(params,'shear') && params.shear.enabled);
+if usesShear
+    if mod(params.Nx,2)==0, operators.spectralMask(params.Nx/2+1,:) = 0; end
+    if mod(params.Ny,2)==0, operators.spectralMask(:,params.Ny/2+1) = 0; end
+end
 % Locally calculate the k operator for the correlation functions as this is
 % not used in the dynamics.
 k = sqrt(operators.k2);
