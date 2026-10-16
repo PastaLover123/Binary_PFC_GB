@@ -1,4 +1,4 @@
-function [positions, profile, indicator] = measureSigma5(fields,params)
+function [positions, profile, indicator, localGB] = measureSigma5(fields,params)
 % Orientation score on the material grid (array layout [Nx,Ny]).
 % Affine shear changes physical q and k together, so windows stay at reference q.
 kx = gpuArray(ifftshift((-floor(params.Nx/2):ceil(params.Nx/2)-1) ...
@@ -25,6 +25,16 @@ if ~isfinite(scale) || scale <= eps
 end
 indicator = gather((scores{1}-scores{2})./(total+1e-12*scale));
 profile = mean(indicator,1).';
+localGB = NaN(params.Nx,2);
+if nargout >= 4
+    for ix = 1:params.Nx
+        localGB(ix,:) = crossings(indicator(ix,:).',params);
+    end
+end
+positions = crossings(profile,params);
+end
+
+function positions = crossings(profile,params)
 positions = [NaN NaN]; % rising boundary, falling boundary, in material Y
 nextProfile = circshift(profile,-1);
 rising = find(profile <= 0 & nextProfile > 0);
