@@ -131,3 +131,109 @@ a known boundary translation, conjugate symmetry of sheared operators, and
 checks do not validate the full MATLAB GPU run or establish shear-driven
 migration. Compare positive/negative loading with the zero-shear control and
 check timestep and box-size convergence before interpreting velocities.
+
+## 1024 x 1024 disconnection-pair test
+
+```matlab
+runSigma5DisconnectionTest             % c=0.3, pair, positive shear
+runSigma5DisconnectionTest(0)          % pair, no shear
+runSigma5DisconnectionTest(-1)         % pair, reverse shear
+runSigma5DisconnectionTest(1,0.3,false) % same large box, flat GB control
+runSigma5DisconnectionTest(1,0.1)       % lower composition, otherwise same test
+```
+
+The box contains 40 commensurate Sigma5 rectangular periods in each direction.
+Its 1024 x 1024 grid resolves each reference lattice unit by about 8.10 points,
+so this enlarges the physical box rather than only oversampling the small test.
+The reference wave number is estimated with the actual interpolation weight
+fractionB=3*c^2-2*c^3. Mean composition defaults to 0.3, and composition
+mobility after release is 0.1 (previously 0.01). Increasing mobility changes
+kinetics, not thermodynamic driving; omega and the Gaussian kernels are unchanged.
+
+### Even-grid shear
+
+Odd dimensions are not required. The operator builder now defines a mask that
+removes only the Nyquist row and column on an even sheared grid, starting at
+zero strain. Initialization projects both n and c into that subspace and
+reconstructs their real fields. Each step projects the new density, its history,
+and evolving composition into the same subspace. The zero Fourier mode is
+retained. The ambiguous signed Nyquist vectors are therefore never evolved;
+all retained modes use the original sheared radial operators. This is not a
+general nonlinear dealiasing filter.
+
+The driver reports the fraction of initial density spectral power discarded.
+For this default seed it was about 1.22e-12 in the independent Python check.
+That small value is specific to this resolved initialization, not a guarantee
+for arbitrary fields. Simply discarding the imaginary part of an inconsistent
+inverse transform would not provide the same consistent Fourier history.
+The 405-square small test is still supported; 1024 is used for the large test.
+
+### Seeded disconnection geometry
+
+A finite terrace is placed on the lower boundary, between X=-Lx/8 and +Lx/8.
+Its two ends have opposite step and Burgers content. In reference lattice
+units a=2*pi/k_ini, the chosen square-Sigma5 mode is
+
+```text
+h = 3*a/sqrt(10)
+b = 2*a/sqrt(10) along X
+b/h = 2/3
+```
+
+This choice follows directly from the grain lattice translations
+t_plus=(-a,3a)/sqrt(10) and t_minus=(a,3a)/sqrt(10).
+Their difference is (b,0). Translating the boundary by t_minus and shifting
+grain 1 by b reproduces the original two-grain registry:
+n1(r+t_minus-b*eX)=n1(r), n2(r+t_minus)=n2(r).
+This supplies a registry shift as well as a geometric step.
+
+The terrace and phase shift use a periodic smooth window with core width
+0.5*a. Grain 1's tangential displacement is localized about the lower GB,
+decaying over 4*a into the bulk. The upper GB is initially flat. The density
+mean is restored after constructing the seed. This is an approximate
+disconnection-dipole seed, not a relaxed elastic solution or a Burgers-circuit
+measurement of the relaxed cores. It can relax into another mode or annihilate.
+
+### Relaxation and inspection
+
+| Steps | Fields that evolve | Loading |
+| --- | --- | --- |
+| 1-5000 | Density only; c and c_k are held exactly fixed | None |
+| 5001-10000 | Density and diffusive composition | None |
+| 10001-30000 | Density and diffusive composition | Shear to +/-0.1 |
+
+No noise is enabled. Density history is carried continuously through both
+stage transitions. Initial and every-1000-step full-resolution MAT files are
+saved; steps 5000 and 10000 therefore preserve the two relaxed states.
+
+Figure 4 shows both local boundary contours Y(X), independently of the
+spatially averaged GB trajectories. The contours are stored as status.localGB
+and status.localGBx in each snapshot, and the latest contour is also saved in
+gb_tracking.mat. Inspect these at steps 0, 5000 and 10000 to see whether the
+terrace survives before interpreting a loaded run as motion of a seeded pair.
+The tracker returns NaNs where crossings are ambiguous rather than inventing
+a boundary. It does not automatically identify or count relaxed core types.
+field_diagnostics.csv records both means, ranges, and composition standard
+deviation; gb_tracking.csv keeps the two GB velocities separate.
+
+For custom timing or parameters:
+
+```matlab
+p = makeSigma5DisconnectionParams(1,0.3,true);
+p.freezeCompositionSteps = 2000;
+p.shear.relaxSteps = 5000;
+p.maxStep = 25000;
+p.output_dir = fullfile(pwd,'my_sigma5_test'); % use a fresh folder
+simulateXPFC(p);
+```
+
+Tests: testDensityDynamics exercises the actual CPU stepping routine, including
+frozen composition and projected even-grid shear. testSigma5DisconnectionSetup
+requires MATLAB GPU and checks the full initializer, lattice translations,
+terrace height, mass conservation, and one frozen-composition sheared step.
+MATLAB/Octave are unavailable in the development environment. The independent
+Python translation passed initialization and 30 full-size nonlinear steps
+(20 density-only, 10 coupled under shear), with conserved means, exact frozen
+composition, bounded released composition and real inverse transforms.
+This short check does not establish survival over the full relaxation stages
+or migration of the relaxed pair.
