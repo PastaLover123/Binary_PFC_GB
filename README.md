@@ -75,3 +75,59 @@ To continue longer, increase maxStep in runDendriteTest.m. Reduce dt if the
 fields diverge or composition leaves (0,1); keep maxStep*dt fixed when
 comparing timesteps. The driver stops before evaluating logarithms on invalid
 composition. MATLAB GPU execution remains to be tested on the user's machine.
+
+## Sigma5 shear test
+
+In MATLAB:
+
+```matlab
+runSigma5ShearTest       % positive shear
+runSigma5ShearTest(-1)   % reverse shear
+runSigma5ShearTest(0)    % unstrained control, same duration
+```
+
+This uses a 2D **square** Sigma5 symmetric tilt bicrystal, orientations
++/-atan(1/3) = +/-18.434949 degrees, with grain 1 in the central half along Y
+and grain 2 in the outer quarters. There are two periodic boundaries normal
+to Y. The reference lengths are exactly 16*2*pi*sqrt(10)/k_ini in both
+directions. A 405x405 odd grid gives about eight points per lattice unit
+and avoids sheared Nyquist-plane ambiguity.
+
+The test selects the existing two-Gaussian envelope at q1 and sqrt(2)*q1
+for both species, under the explicit label "square". This changes the shell
+selection from the single-peak dendrite test, while retaining the Gaussian
+construction and the slowly varying composition approximation. Square
+symmetry is seeded; its long-time stability must be checked in the control.
+Initial mode amplitudes approximate the minimum within a two-shell square
+ansatz, not a full binary equilibrium calculation. Composition begins uniform
+at 0.1 and mean density at -0.05; no extra dislocations or noise are added.
+
+The system relaxes for 5,000 steps (time 50), then applies simple shear
+x=X+gamma*Y in increments every 100 steps. The signed rate is +/-5e-4 per
+unit time, capped at |gamma|=0.1. dt=0.01, beta_n=1, M_n=1 and M_c=0.01.
+After 25,000 total steps the loading reaches the cap. Both kernels and the
+density/composition Laplacians use k^2=Kx^2+(Ky-gamma*Kx)^2. Fields and density
+history stay on the material grid; shear changes the cell, not the array
+values by an extra interpolation.
+
+Each run has a unique sigma5_shear_* output directory. Full double-precision
+fields and density history are saved every 1,000 steps. gb_tracking.csv and
+gb_tracking.mat record time, strain, the two wrapped Y positions, unwrapped
+displacements, signed velocities, and individual speed magnitudes. Velocities
+are separate trailing linear fits over up to five output samples; no averaging
+or velocity normalization is applied. Since y=Y for this shear, the measured
+normal positions are also physical y positions. Live density images remain
+in material coordinates; they do not draw the tilted cell outline.
+
+The orientation tracker uses Fourier windows around each grain's first shell.
+It marks tracking invalid rather than choosing arbitrary crossings if it no
+longer resolves exactly one rising and one falling boundary. After a lost
+identity, displacement/velocity values remain undefined for that run. Unwrapping
+assumes each boundary travels less than half the box between output samples.
+
+Independent Python checks passed for commensurability, initial crossings,
+a known boundary translation, conjugate symmetry of sheared operators, and
+200 nonlinear steps with conserved means and bounded composition. These
+checks do not validate the full MATLAB GPU run or establish shear-driven
+migration. Compare positive/negative loading with the zero-shear control and
+check timestep and box-size convergence before interpreting velocities.
