@@ -247,33 +247,57 @@ p = previewDisconnectionPair;          % inspect the density before evolving
 runDisconnectionAnnihilationTest(p);  % evolve the exact same configuration
 ```
 
-The default is 512 x 512, 20 commensurate periods per direction, c=0.3,
-M_c=0.1 and no applied shear. Initial pair separation is now 3*Lx/8,
-about 23.72 lattice units: 1.5 times the earlier separation. Core locations
-start near X/a=+/-11.86. Step height, Burgers shift and core smoothing are
-unchanged. Density-only preparation lasts 100 steps (time 1), then composition
+The default is now 768 x 512, with 30 commensurate periods along X and
+20 along Y, c=0.3, M_c=0.1 and no applied shear. Spatial resolution is unchanged.
+Initial pair separation is 0.45*Lx, about 42.69 lattice units, compared with the
+previous 23.72. Core locations start near X/a=+/-21.35. Periodicity limits the
+useful separation: past half Lx, the shorter arc runs through the periodic seam.
+
+The seeded mode is now doubled: h=6*a/sqrt(10), approximately 1.897*a, and
+b=4*a/sqrt(10), approximately 1.265*a. Both height and relative displacement
+are multiplied together to preserve the crystallographic registry relation.
+Core smoothing is unchanged. A larger mode can dissociate into smaller modes;
+its larger Burgers content also changes elastic interactions, so increasing
+height is a visibility change and a physical mode change, not a guarantee of
+a longer lifetime. Density-only preparation lasts 100 steps (time 1), then composition
 evolves to step 10,000 (time 100). Motion during preparation is not discarded.
 
 The standalone preview builds the fields but takes no timesteps and writes
 no data. It shows a large raw-density close-up covering both initial cores,
-the intervening terrace and four lattice units of padding. It uses no
-orientation indicator, contour overlay, fitted position or core detector.
-The same fixed window updates every 50 steps during the simulation. Axes use
+the intervening terrace and four lattice units of padding. A thin cyan curve
+shows the measured lower GB; red/yellow open circles show provisional core
+positions fitted from its terrace profile. The same fixed window updates
+every 50 steps during the simulation. Axes use
 X/a and (Y-Y_flat)/a; image rows/columns are transposed consistently with
 the code's [Nx,Ny] field layout. Initial density limits stay fixed so changing
 contrast cannot masquerade as evolving structure. You can zoom further with
 MATLAB's normal figure controls; updates replace image data without resetting
-your selected axes limits.
+your selected axes limits. Set p.densityZoom.trackPositions=false to hide all
+overlays and retain the raw-density view alone.
 
-Only this density view is shown by default. The provisional core tracker and
-whole-domain plots are disabled for this workflow; they cannot block the run
-or choose its camera window. The old orientation and pair-fitting functions
-remain available for later testing.
+Only this density view is shown by default. Position fitting is run inside a
+guarded overlay helper, independently of the simulation's legacy tracking
+pipeline. Its fit can move both cores and change terrace height and offset.
+Markers lie on the measured GB and disappear if the fit is unresolved; the
+title reports unresolved/unavailable tracking. Raw density continues regardless.
+The fixed camera is never selected by fitted positions. The ordinary GB and
+pair-tracking plots remain disabled.
+
+The geometric marker positions are approximate, not a Burgers-circuit
+identification. In an independent check the initial separation fit was within
+one lattice unit of the prescribed 42.69*a, and the taller terrace remained
+resolved after 100 density-only steps. Inspect the density if the higher mode
+splits or the profile ceases to resemble a single terrace. This does not
+establish survival beyond the earlier observed annihilation time.
 
 Every displayed frame, including step 0, is saved under the run's
 density_zoom directory as density_stepXXXXXXX.mat. Each file stores the exact
 double-precision density crop and its coordinates, time and fixed colour limits.
 MAT compression is lossless; there is no image resizing or downsampling.
+Each crop also includes the measured contour and resolved markers; replay
+restores them and remains compatible with older crops without overlays.
+density_zoom/core_tracking.csv records both positions, separation, fitted
+height, fit error and the resolution flag.
 Full-domain snapshots still follow the existing initial/preparation-end/
 every-1000-step/final schedule, separately from the frequent crop output.
 
@@ -314,7 +338,18 @@ previewDisconnectionPair(p);
 runDisconnectionAnnihilationTest(p);
 ```
 
-For the optional provisional geometric tracker, set p.trackGB=true and
+To retain the taller pair's geometry but use the fundamental mode instead:
+
+```matlab
+p = makeDisconnectionAnnihilationParams(0.3,"mobile",1);
+previewDisconnectionPair(p);
+runDisconnectionAnnihilationTest(p);
+```
+
+The third configuration argument is a positive integer mode multiplier; the
+default is 2. Compare modes separately when assessing solute effects.
+
+For the optional legacy geometric-tracking outputs, set p.trackGB=true and
 p.trackPair=true. It fits a periodic terrace to the lower boundary contour,
 with changing offset and height. Low-height, poorly fitted or unresolved
 contours produce undefined resolved separation. This diagnostic does not
