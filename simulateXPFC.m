@@ -73,11 +73,33 @@ if params.dispOutput
     pause(.1);
 end
 toc;
+trackGB = isfield(params,'trackGB') && params.trackGB;
+gbRows = zeros(0,8);
+lastWrapped = []; lastUnwrapped = [];
+if trackGB
+    [pos,~,~] = measureSigma5(fields,params);
+    if any(~isfinite(pos)), error('Initial Sigma5 boundaries not resolved.'); end
+    initialPositions = pos;
+    lastWrapped = pos; lastUnwrapped = pos;
+    gbRows = [0 params.gamma pos 0 0 NaN NaN];
+end
 %% Evolve fields
 tic;
 disp('[[[[[ Starting main simulation loop... ]]]]]');
 for step=1:params.maxStep
     status.timestep = step;
+    % Piecewise affine shear of the periodic cell; fields stay on material grid.
+    if isfield(params,'shear') && params.shear.enabled ...
+            && step > params.shear.relaxSteps ...
+            && mod(step-params.shear.relaxSteps,params.shear.every)==0
+        increment = params.shear.rate*params.dt*params.shear.every;
+        gammaNew = max(-params.shear.maxStrain, ...
+            min(params.shear.maxStrain, params.gamma+increment));
+        if gammaNew ~= params.gamma
+            params.gamma = gammaNew;
+            operators = genOperators(params);
+        end
+    end
     % Reject invalid input before evaluating composition logarithms.
     if any(~isfinite(fields.n(:))) || any(~isfinite(fields.c(:))) ...
             || any(fields.c(:) <= 0 | fields.c(:) >= 1)
@@ -89,11 +111,55 @@ for step=1:params.maxStep
     if mod(step,params.outStep)==0
         % Basic error check: Look for divergences in n or c and check c is
         % within bounds ( 0 <= c <= 1)
-        if nnz(isnan(fields.n))>0||nnz(isnan(fields.c))>0
+        if any(~isfinite(fields.n(:))) || any(~isfinite(fields.c(:)))
             error(['ERROR: OBTAINED NAN VALUES BY STEP ' num2str(step)])
         end
         if nnz((fields.c <= 0) )>0 || nnz((fields.c >= 1)) > 0
             error(['ERROR: OBTAINED C FIELD OUT OF BOUNDS BY STEP ' num2str(step)])
+        end
+        if trackGB
+            [pos,profile,indicator] = measureSigma5(fields,params);
+            displacement = [NaN NaN]; velocity = [NaN NaN];
+            if all(isfinite(pos)) && ~isempty(lastWrapped)
+                Ly = params.Ny*params.dy;
+                unwrapped = lastUnwrapped + mod(pos-lastWrapped+Ly/2,Ly)-Ly/2;
+                displacement = unwrapped-initialPositions;
+                lastWrapped = pos; lastUnwrapped = unwrapped;
+            elseif all(isfinite(pos))
+                warning('Boundary identities lost; displacements remain undefined.');
+            else
+                warning('Expected two GB crossings at step %d; tracking invalid.',step);
+                lastWrapped = []; lastUnwrapped = [];
+            end
+            row = [step*params.dt params.gamma pos displacement velocity];
+            gbRows(end+1,:) = row;
+            % Separate signed velocities from trailing fits; never average GBs.
+            if size(gbRows,1) >= 3
+                ii = max(1,size(gbRows,1)-4):size(gbRows,1);
+                if all(isfinite(gbRows(ii,5:6)), 'all')
+                    for b=1:2
+                        fit = polyfit(gbRows(ii,1),gbRows(ii,4+b),1);
+                        gbRows(end,6+b) = fit(1);
+                    end
+                end
+            end
+            T = array2table([gbRows abs(gbRows(:,7:8))], 'VariableNames', ...
+                {'time','gamma','y1','y2','displacement1','displacement2', ...
+                 'velocity1','velocity2','speed1','speed2'});
+            writetable(T,fullfile(params.output_dir,'gb_tracking.csv'));
+            save(fullfile(params.output_dir,'gb_tracking.mat'),'T','profile','params');
+            fprintf('GB displacements: [%g, %g]; gamma=%g\n', displacement,params.gamma);
+            if params.dispOutput
+                figure(3);
+                subplot(2,1,1);
+                plot(T.time,T.displacement1,T.time,T.displacement2);
+                xlabel('Time'); ylabel('GB displacement');
+                legend('GB 1','GB 2');
+                subplot(2,1,2);
+                plot(T.time,T.speed1,T.time,T.speed2);
+                xlabel('Time'); ylabel('|GB velocity|');
+                legend('GB 1','GB 2'); drawnow;
+            end
         end
         % Lossless full-grid snapshot, including density history for restarts.
         if isfield(params, 'saveFields') && params.saveFields
@@ -132,7 +198,11 @@ for step=1:params.maxStep
             pause(.1);
             % Plot the strain with reference wave-vector equal to k_1A
             subplot(1,3,3)
-            imagesc(real(strainFilter(sqrt(operators.k2),operators.k2,params.k_1A,1,1,1,fields.n)))
+            if trackGB
+                imagesc(indicator); title('Orientation: grain 1 minus grain 2');
+            else
+                imagesc(real(strainFilter(sqrt(operators.k2),operators.k2,params.k_1A,1,1,1,fields.n)))
+            end
             colorbar;
             pause(.1);
         end
