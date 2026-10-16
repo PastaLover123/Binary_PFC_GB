@@ -51,6 +51,27 @@ Run `testDensityDynamics` in MATLAB for CPU-only checks of the actual step
 routine: the linear density recurrence, density history, conservation of both
 means, disabled noise, and the mixing-force sign.
 
-The supplied initialization/output code otherwise remains as provided,
-including its duplicate bicrystal branch, smoothing, and movie-only output.
+The legacy initialization options retain their duplicate bicrystal branch
+and smoothing. The seeded test below uses a separate initialization branch
+and enables full-grid output.
 Composition must remain strictly between zero and one for the logarithms.
+
+## Seeded growth smoke test
+
+Run `runDendriteTest` in MATLAB. This initializes a small triangular crystal
+(radius 5 lattice units, smooth envelope width 1) in a uniform liquid on a
+512 x 512 periodic grid. The density mean is exactly -0.05 and composition is
+uniformly 0.1. Only the envelope is smoothed, preserving lattice oscillations.
+
+The test disables both noises and movies, uses dt=0.01, beta_n=1, M_n=1,
+M_c=0.01, and runs 20,000 steps (time 200). It displays density, composition
+and strain every 1,000 steps and saves lossless full-grid MAT snapshots,
+including density history, in a unique dendrite_test_* directory. These are
+exploratory growth settings, not a calibrated dendritic-growth regime or a
+validated stability/convergence result. A liquid seed in solid would test
+melting; this test instead seeds solid in liquid to test solidification.
+
+To continue longer, increase maxStep in runDendriteTest.m. Reduce dt if the
+fields diverge or composition leaves (0,1); keep maxStep*dt fixed when
+comparing timesteps. The driver stops before evaluating logarithms on invalid
+composition. MATLAB GPU execution remains to be tested on the user's machine.
