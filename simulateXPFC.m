@@ -1,7 +1,12 @@
+function simulateXPFC(params)
+% Run with defaults, or supply a complete parameter structure.
+if nargin < 1
+    params = genParams();
+end
+if ~isfolder(params.output_dir), mkdir(params.output_dir); end
 %% Initialize GPU
 tic;
 disp('[[[[[ Preparing for simulation run... ]]]]]');
-params = genParams();
 disp(['[[[[[ Run ID is ' num2str(params.setNum) ' ]]]]]']);
 toc;
 %% Prepare operators on GPU
@@ -63,7 +68,7 @@ if params.dispOutput
     colorbar;
     pause(.1);
     subplot(1,2,2)
-    imagesc(fields.n);
+    imagesc(fields.c);
     colorbar;
     pause(.1);
 end
@@ -73,6 +78,11 @@ tic;
 disp('[[[[[ Starting main simulation loop... ]]]]]');
 for step=1:params.maxStep
     status.timestep = step;
+    % Reject invalid input before evaluating composition logarithms.
+    if any(~isfinite(fields.n(:))) || any(~isfinite(fields.c(:))) ...
+            || any(fields.c(:) <= 0 | fields.c(:) >= 1)
+        error('Invalid fields before step %d; reduce dt and restart.', step);
+    end
     % Perform one time-step
     [fields,status] = stepXPFC( params, fields, operators, status);
     % Save to videos,
@@ -82,8 +92,18 @@ for step=1:params.maxStep
         if nnz(isnan(fields.n))>0||nnz(isnan(fields.c))>0
             error(['ERROR: OBTAINED NAN VALUES BY STEP ' num2str(step)])
         end
-        if nnz((fields.c < 0) )>0 || nnz((fields.c > 1)) > 0
+        if nnz((fields.c <= 0) )>0 || nnz((fields.c >= 1)) > 0
             error(['ERROR: OBTAINED C FIELD OUT OF BOUNDS BY STEP ' num2str(step)])
+        end
+        % Lossless full-grid snapshot, including density history for restarts.
+        if isfield(params, 'saveFields') && params.saveFields
+            snapshot = struct();
+            names = fieldnames(fields);
+            for j = 1:numel(names)
+                snapshot.(names{j}) = gather(fields.(names{j}));
+            end
+            save(fullfile(params.output_dir, sprintf('s%d_step%07d.mat', ...
+                params.setNum, step)), 'snapshot', 'params', 'status', '-v7.3');
         end
         % Save n and c fields to movies
         if params.makeMovie
@@ -92,11 +112,11 @@ for step=1:params.maxStep
             % Make the data grayscale
             minv1 = min(data1(:));
             maxv1 = max(data1(:));
-            frame=gather((data1-minv1)/(maxv1-minv1));
+            frame=gather((data1-minv1)/max(maxv1-minv1,eps));
             writeVideo(v1,frame);
             minv2 = min(data2(:));
             maxv2 = max(data2(:));
-            frame=gather((data2-minv2)/(maxv2-minv2));
+            frame=gather((data2-minv2)/max(maxv2-minv2,eps));
             writeVideo(v2,frame);
         end
         % Plot n and c fields
@@ -134,3 +154,4 @@ if params.makeMovie
 end
 
 disp('[[[[[ Done. ]]]]]');
+end
