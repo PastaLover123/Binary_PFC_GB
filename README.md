@@ -237,3 +237,72 @@ Python translation passed initialization and 30 full-size nonlinear steps
 composition, bounded released composition and real inverse transforms.
 This short check does not establish survival over the full relaxation stages
 or migration of the relaxed pair.
+
+## Small pair-annihilation workflow (no applied shear)
+
+First pull the latest main branch, then in MATLAB:
+
+```matlab
+p = previewDisconnectionPair;          % build and inspect only; no timesteps
+runDisconnectionAnnihilationTest(p);  % evolve that exact parameter configuration
+```
+
+The standalone preview opens a four-panel figure: both cores and the terrace,
+one density zoom around each core, and the lower boundary's measured contour.
+Red curves are the smoothed orientation-derived boundary, not individual
+density maxima. It returns parameters, optionally also the initialized fields:
+[p,fields]=previewDisconnectionPair(). It does not save files or integrate
+density/composition. A supported MATLAB GPU is required.
+
+The new small test uses 512 x 512 points and 20 commensurate periods per
+direction, retaining about 8.10 grid points per lattice unit. Mean composition
+is 0.3 and M_c=0.1. Shear is disabled throughout. Pair separation initially
+equals one quarter of the box (about 15.81 lattice units). Density-only
+preparation lasts 100 steps (time 1); composition then evolves for the rest
+of the 10,000-step run (final time 100). The preparation is deliberately short:
+an independent 512-square check showed substantial terrace-height relaxation
+over a longer 500-step frozen-composition stage. The pair is free to move
+during preparation, and this motion is included in the diagnostics.
+
+For a matched frozen-composition control:
+
+```matlab
+runDisconnectionAnnihilationTest(0.3,"frozen")
+```
+
+This uses the same mean c, kernels, initial pair and mobility parameters, but
+holds composition fixed throughout. The mobile test shares its first 100 steps.
+A lower-concentration run is also available with
+runDisconnectionAnnihilationTest(0.1); changing mean c also changes the
+interpolated kernel, reference spacing and thermodynamic driving, so a change
+in annihilation time by itself is not a measurement of a drag force.
+
+For alternate settings, customize the returned parameter structure, then
+preview and run it:
+
+```matlab
+p = makeDisconnectionAnnihilationParams(0.3,"mobile");
+p.preparationSteps = 50;
+p.freezeCompositionSteps = p.preparationSteps;
+p.maxStep = 20000;
+previewDisconnectionPair(p);
+runDisconnectionAnnihilationTest(p);
+```
+
+Diagnostics run every 50 steps. Figure 5 shows pair separation and fitted
+terrace height. pair_tracking.csv and pair_tracking.mat record the two fitted
+core positions, separation, height, fit error, resolution flag, and whether
+composition is frozen. Separation comes from fitting a periodic terrace to
+the lower-GB contour with offset and height allowed to change. A fit is
+resolved only if height is at least 25% of the prescribed step height,
+separation exceeds two fit widths, and fit RMSE is below 35% of fitted height.
+Invalid/flat/ambiguous contours produce undefined resolved separation; the
+raw fitted separation is retained when available. This geometric diagnostic
+cannot certify topological annihilation or identify a relaxed Burgers vector.
+Inspect the saved density and contour when the pair becomes unresolved.
+
+Initial, preparation-end, every-1000-step and final full-resolution snapshots
+are saved separately from the more frequent diagnostics. Existing large
+Sigma5 shear workflows remain available. testDisconnectionPairTracker is a
+CPU-only test of known terrace positions, a translated centre, and invalid or
+flat contours. MATLAB runtime validation is still needed on the user's GPU.
