@@ -104,6 +104,13 @@ if trackGB
     lastWrapped = pos; lastUnwrapped = pos;
     gbRows = [0 params.gamma pos 0 0 NaN NaN];
 end
+trackPair = isfield(params,'trackPair') && params.trackPair;
+pairRows = zeros(0,9);
+if trackPair
+    assert(trackGB, 'Pair tracking requires GB tracking.');
+    status.pairMeasurement = measureDisconnectionPair(localGB,params);
+    [pairRows,status] = savePairDiagnostics(pairRows,status,params);
+end
 fieldRows = diagnosticRow(fields,params,0);
 if isfield(params,'saveFields') && params.saveFields
     saveState(fields,params,status);
@@ -154,6 +161,11 @@ for step=1:params.maxStep
             [pos,profile,indicator,localGB] = measureSigma5(fields,params);
             status.localGB = localGB;
             status.localGBx = ((0:params.Nx-1)'-floor(params.Nx/2))*params.dx;
+            if trackPair
+                status.pairMeasurement = measureDisconnectionPair( ...
+                    localGB,params,status.pairMeasurement);
+                [pairRows,status] = savePairDiagnostics(pairRows,status,params);
+            end
             displacement = [NaN NaN]; velocity = [NaN NaN];
             if all(isfinite(pos)) && ~isempty(lastWrapped)
                 Ly = params.Ny*params.dy;
@@ -209,7 +221,14 @@ for step=1:params.maxStep
         writetable(fieldTable,fullfile(params.output_dir,'field_diagnostics.csv'));
         fprintf('Composition: mean=%.8g, range=[%.6g, %.6g], std=%.4g\n', ...
             fieldRows(end,4),fieldRows(end,7:9));
-        if isfield(params,'saveFields') && params.saveFields
+        saveNow = true;
+        if isfield(params,'fieldSaveStep')
+            saveNow = mod(step,params.fieldSaveStep)==0 || step==params.maxStep;
+            if isfield(params,'preparationSteps')
+                saveNow = saveNow || step==params.preparationSteps;
+            end
+        end
+        if isfield(params,'saveFields') && params.saveFields && saveNow
             saveState(fields,params,status);
         end
         % Save n and c fields to movies
@@ -286,4 +305,27 @@ for j = 1:numel(names)
 end
 save(fullfile(params.output_dir,sprintf('s%d_step%07d.mat', ...
     params.setNum,status.timestep)), 'snapshot','params','status','-v7.3');
+end
+
+
+function [rows,status] = savePairDiagnostics(rows,status,p)
+m = status.pairMeasurement;
+frozen = isfield(p,'freezeCompositionSteps') ...
+    && status.timestep <= p.freezeCompositionSteps;
+rows(end+1,:) = [status.timestep*p.dt frozen m.core1 m.core2 ...
+    m.separation m.fittedSeparation m.height m.rmse double(m.resolved)];
+pairTable = array2table(rows,'VariableNames', ...
+    {'time','compositionFrozen','core1','core2','separation', ...
+    'fittedSeparation','height','fitRMSE','resolved'});
+writetable(pairTable,fullfile(p.output_dir,'pair_tracking.csv'));
+save(fullfile(p.output_dir,'pair_tracking.mat'),'pairTable','p');
+if p.dispOutput
+    a = 2*pi/p.k_ini;
+    figure(5);
+    subplot(2,1,1); plot(pairTable.time,pairTable.separation/a,'o-');
+    xlabel('Time'); ylabel('Resolved pair separation / a');
+    xline(p.preparationSteps*p.dt,'--','Preparation ends');
+    subplot(2,1,2); plot(pairTable.time,pairTable.height/a);
+    xlabel('Time'); ylabel('Fitted step height / a'); drawnow;
+end
 end
