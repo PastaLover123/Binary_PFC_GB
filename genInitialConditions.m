@@ -3,7 +3,16 @@ function [fields] = genInitialConditions(fields,params)
 % parameters provided in params.
 
 % Uniform values for the n and c fields
-if params.initialCondition == "crystal seed"
+if params.initialCondition == "sigma5"
+    x = gpuArray(((0:params.Nx-1)' - floor(params.Nx/2))*params.dx);
+    y = gpuArray(((0:params.Ny-1) - floor(params.Ny/2))*params.dy);
+    mask = 0.5*(1-tanh((abs(y)-params.Ny*params.dy/4)/params.gbWidth));
+    n1 = squareModes(x,y,params.theta_1,params);
+    n2 = squareModes(x,y,params.theta_2,params);
+    n = mask.*n1 + (1-mask).*n2;
+    fields.n = params.n_init + n - mean(n(:));
+    fields.c = fields.c + params.c_init;
+elseif params.initialCondition == "crystal seed"
     % Smooth only the envelope: preserve atomic-scale lattice oscillations.
     x = ((0:params.Nx-1)' - (params.Nx-1)/2)*params.dx;
     y = ((0:params.Ny-1) - (params.Ny-1)/2)*params.dy;
@@ -64,4 +73,14 @@ elseif params.initialCondition == "bicrystal"
    fields.n = imgaussfilt(real(fields.n),2,"Padding","circular");
    fields.c = imgaussfilt(real(fields.c),10,"Padding","circular");
 
+end
+end
+
+function n = squareModes(x,y,theta,params)
+% Four independent reciprocal modes; diagonal modes complete the second shell.
+q = params.k_ini;
+u = cosd(theta)*x + sind(theta)*y;
+v = -sind(theta)*x + cosd(theta)*y;
+n = 2*params.squareA10*(cos(q*u)+cos(q*v)) ...
+    + 4*params.squareA11*cos(q*u).*cos(q*v);
 end
