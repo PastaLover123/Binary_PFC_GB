@@ -154,7 +154,7 @@ p.gbWidth=0.5*a;
 end
 
 function [history,profiles]=recordSegregation(fields,p,m,step,history,profiles)
-c=gather(fields.c); profile=mean(c,1).';
+c=gather(fields.c); n=gather(fields.n); profile=mean(c,1).';
 profiles(:,end+1)=profile;
 y=((0:p.Ny-1)'-floor(p.Ny/2))*p.dy;
 Ly=p.Ny*p.dy; a=2*pi/p.k_ini;
@@ -175,26 +175,45 @@ writetable(S,fullfile(p.output_dir,'segregation.csv'));
 save(fullfile(p.output_dir,'segregation.mat'),'S','profiles','y','p');
 fig=findall(groot,'Type','figure','Tag','sigma5Segregation');
 if isempty(fig), fig=figure('Tag','sigma5Segregation','Name','Sigma5 segregation'); else, fig=fig(1); end
-figure(fig); clf(fig);
+% Keep the initial density scale: autoscaling would hide melting.
+if step==0 || ~isappdata(fig,'densityLimits')
+    setappdata(fig,'densityLimits',[min(n(:))-eps max(n(:))+eps]);
+    setappdata(fig,'lastPositions',[-Ly/4 Ly/4]);
+end
+if all(isfinite(m.positions)), setappdata(fig,'lastPositions',m.positions); end
+plotPositions=getappdata(fig,'lastPositions');
+plotDistance=mod(y-plotPositions+Ly/2,Ly)-Ly/2;
+figure(fig); clf(fig); set(fig,'Position',[100 100 1400 1000]);
 x=(0:p.Nx-1)*p.dx;
 for b=1:2
-    subplot(2,2,b);
-    [offset,order]=sort(distance(:,b)); keep=abs(offset)<=4*a;
-    if any(keep)
-        imagesc(x,offset(keep)/a,c(:,order(keep)).'); axis xy;
-        caxis([min(c(:))-eps max(c(:))+eps]); colorbar;
+    [offset,order]=sort(plotDistance(:,b)); keep=abs(offset)<=4*a;
+    for channel=1:2
+        ax=subplot(3,2,2*(b-1)+channel);
+        if channel==1
+            values=n; limits=getappdata(fig,'densityLimits'); label='density n';
+            colormap(ax,gray(256));
+        else
+            values=c; limits=[min(c(:))-eps max(c(:))+eps]; label='composition c';
+            colormap(ax,parula(256));
+        end
+        imagesc(x,offset(keep)/a,values(:,order(keep)).'); axis xy;
+        caxis(limits); colorbar;
+        xlabel('X'); ylabel('(Y - Y_{GB}) / a');
+        title(sprintf('GB %d: %s, step %d',b,label,step));
+        if any(~isfinite(m.positions))
+            title(sprintf('GB %d: %s (last tracked location), step %d',b,label,step));
+        end
     end
-    xlabel('X'); ylabel('(Y - Y_{GB}) / a'); title(sprintf('GB %d: composition, step %d',b,step));
 end
-subplot(2,2,3); hold on;
+subplot(3,2,5); hold on;
 for b=1:2
     [offset,order]=sort(distance(:,b)); keep=abs(offset)<=4*a;
     plot(offset(keep)/a,profile(order(keep)),'DisplayName',sprintf('GB %d',b));
 end
 yline(p.c_init,':','Initial mean'); xlabel('(Y - Y_{GB}) / a'); ylabel('Mean composition along X'); legend('Location','best');
-subplot(2,2,4); plot(history(:,2),history(:,4:5));
+subplot(3,2,6); plot(history(:,2),history(:,4:5));
 xlabel('Time'); ylabel('Integrated excess composition'); legend('GB 1','GB 2','Location','best');
 drawnow;
 savefig(fig,fullfile(p.output_dir,'segregation.fig'));
-exportgraphics(fig,fullfile(p.output_dir,'segregation.png'));
+exportgraphics(fig,fullfile(p.output_dir,'segregation.png'),'Resolution',300);
 end
