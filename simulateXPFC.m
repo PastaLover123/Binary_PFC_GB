@@ -83,6 +83,11 @@ if params.dispOutput
     pause(.1);
 end
 toc;
+densityZoom = isfield(params,'densityZoom') && params.densityZoom.enabled;
+zoomState = [];
+if densityZoom
+    zoomState = plotDisconnectionDensity(fields,params,0,zoomState,true);
+end
 trackGB = isfield(params,'trackGB') && params.trackGB;
 gbRows = zeros(0,8);
 lastWrapped = []; lastUnwrapped = [];
@@ -156,6 +161,11 @@ for step=1:params.maxStep
         end
         if nnz((fields.c <= 0) )>0 || nnz((fields.c >= 1)) > 0
             error(['ERROR: OBTAINED C FIELD OUT OF BOUNDS BY STEP ' num2str(step)])
+        end
+        % Render/save raw density before any optional tracking diagnostics.
+        if densityZoom
+            zoomState = plotDisconnectionDensity( ...
+                fields,params,step,zoomState,true);
         end
         if trackGB
             [pos,profile,indicator,localGB] = measureSigma5(fields,params);
