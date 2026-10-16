@@ -238,71 +238,86 @@ composition, bounded released composition and real inverse transforms.
 This short check does not establish survival over the full relaxation stages
 or migration of the relaxed pair.
 
-## Small pair-annihilation workflow (no applied shear)
+## Small pair-annihilation workflow: raw-density close-up
 
-First pull the latest main branch, then in MATLAB:
+After pulling main, run in MATLAB:
 
 ```matlab
-p = previewDisconnectionPair;          % build and inspect only; no timesteps
-runDisconnectionAnnihilationTest(p);  % evolve that exact parameter configuration
+p = previewDisconnectionPair;          % inspect the density before evolving
+runDisconnectionAnnihilationTest(p);  % evolve the exact same configuration
 ```
 
-The standalone preview opens a four-panel figure: both cores and the terrace,
-one density zoom around each core, and the lower boundary's measured contour.
-Red curves are the smoothed orientation-derived boundary, not individual
-density maxima. It returns parameters, optionally also the initialized fields:
-[p,fields]=previewDisconnectionPair(). It does not save files or integrate
-density/composition. A supported MATLAB GPU is required.
+The default is 512 x 512, 20 commensurate periods per direction, c=0.3,
+M_c=0.1 and no applied shear. Initial pair separation is now 3*Lx/8,
+about 23.72 lattice units: 1.5 times the earlier separation. Core locations
+start near X/a=+/-11.86. Step height, Burgers shift and core smoothing are
+unchanged. Density-only preparation lasts 100 steps (time 1), then composition
+evolves to step 10,000 (time 100). Motion during preparation is not discarded.
 
-The new small test uses 512 x 512 points and 20 commensurate periods per
-direction, retaining about 8.10 grid points per lattice unit. Mean composition
-is 0.3 and M_c=0.1. Shear is disabled throughout. Pair separation initially
-equals one quarter of the box (about 15.81 lattice units). Density-only
-preparation lasts 100 steps (time 1); composition then evolves for the rest
-of the 10,000-step run (final time 100). The preparation is deliberately short:
-an independent 512-square check showed substantial terrace-height relaxation
-over a longer 500-step frozen-composition stage. The pair is free to move
-during preparation, and this motion is included in the diagnostics.
+The standalone preview builds the fields but takes no timesteps and writes
+no data. It shows a large raw-density close-up covering both initial cores,
+the intervening terrace and four lattice units of padding. It uses no
+orientation indicator, contour overlay, fitted position or core detector.
+The same fixed window updates every 50 steps during the simulation. Axes use
+X/a and (Y-Y_flat)/a; image rows/columns are transposed consistently with
+the code's [Nx,Ny] field layout. Initial density limits stay fixed so changing
+contrast cannot masquerade as evolving structure. You can zoom further with
+MATLAB's normal figure controls; updates replace image data without resetting
+your selected axes limits.
 
-For a matched frozen-composition control:
+Only this density view is shown by default. The provisional core tracker and
+whole-domain plots are disabled for this workflow; they cannot block the run
+or choose its camera window. The old orientation and pair-fitting functions
+remain available for later testing.
+
+Every displayed frame, including step 0, is saved under the run's
+density_zoom directory as density_stepXXXXXXX.mat. Each file stores the exact
+double-precision density crop and its coordinates, time and fixed colour limits.
+MAT compression is lossless; there is no image resizing or downsampling.
+Full-domain snapshots still follow the existing initial/preparation-end/
+every-1000-step/final schedule, separately from the frequent crop output.
+
+Replay the saved density sequence with:
+
+```matlab
+replayDisconnectionZoom
+```
+
+Choose the simulation folder or its density_zoom subfolder. Alternatively:
+
+```matlab
+replayDisconnectionZoom('path/to/simulation_folder',0.1)
+```
+
+The second argument is pause time per frame. Replay uses the same fixed window
+and initial colour limits. Close the replay figure to stop.
+
+For the matched frozen-composition control:
 
 ```matlab
 runDisconnectionAnnihilationTest(0.3,"frozen")
 ```
 
-This uses the same mean c, kernels, initial pair and mobility parameters, but
-holds composition fixed throughout. The mobile test shares its first 100 steps.
-A lower-concentration run is also available with
-runDisconnectionAnnihilationTest(0.1); changing mean c also changes the
-interpolated kernel, reference spacing and thermodynamic driving, so a change
-in annihilation time by itself is not a measurement of a drag force.
+It has the same mean c, kernels and seed, but holds composition fixed throughout.
+Both runs share the initial 100-step preparation. Changing mean c is also
+possible with runDisconnectionAnnihilationTest(0.1), but changes the interpolated
+kernels and driving as well as solute kinetics; a changed lifetime alone is not
+a drag-force measurement.
 
-For alternate settings, customize the returned parameter structure, then
-preview and run it:
+Customize parameters before previewing:
 
 ```matlab
 p = makeDisconnectionAnnihilationParams(0.3,"mobile");
-p.preparationSteps = 50;
-p.freezeCompositionSteps = p.preparationSteps;
+p.disconnection.separation = 20*(2*pi/p.k_ini);
 p.maxStep = 20000;
 previewDisconnectionPair(p);
 runDisconnectionAnnihilationTest(p);
 ```
 
-Diagnostics run every 50 steps. Figure 5 shows pair separation and fitted
-terrace height. pair_tracking.csv and pair_tracking.mat record the two fitted
-core positions, separation, height, fit error, resolution flag, and whether
-composition is frozen. Separation comes from fitting a periodic terrace to
-the lower-GB contour with offset and height allowed to change. A fit is
-resolved only if height is at least 25% of the prescribed step height,
-separation exceeds two fit widths, and fit RMSE is below 35% of fitted height.
-Invalid/flat/ambiguous contours produce undefined resolved separation; the
-raw fitted separation is retained when available. This geometric diagnostic
-cannot certify topological annihilation or identify a relaxed Burgers vector.
-Inspect the saved density and contour when the pair becomes unresolved.
-
-Initial, preparation-end, every-1000-step and final full-resolution snapshots
-are saved separately from the more frequent diagnostics. Existing large
-Sigma5 shear workflows remain available. testDisconnectionPairTracker is a
-CPU-only test of known terrace positions, a translated centre, and invalid or
-flat contours. MATLAB runtime validation is still needed on the user's GPU.
+For the optional provisional geometric tracker, set p.trackGB=true and
+p.trackPair=true. It fits a periodic terrace to the lower boundary contour,
+with changing offset and height. Low-height, poorly fitted or unresolved
+contours produce undefined resolved separation. This diagnostic does not
+certify topological annihilation. testDisconnectionPairTracker checks synthetic
+terraces and invalid contours on CPU. MATLAB GPU execution of the visualization
+still needs to be checked on the user's machine.
