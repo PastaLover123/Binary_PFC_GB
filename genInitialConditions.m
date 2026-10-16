@@ -3,7 +3,20 @@ function [fields] = genInitialConditions(fields,params)
 % parameters provided in params.
 
 % Uniform values for the n and c fields
-if params.initialCondition == "uniform"
+if params.initialCondition == "crystal seed"
+    % Smooth only the envelope: preserve atomic-scale lattice oscillations.
+    x = ((0:params.Nx-1)' - (params.Nx-1)/2)*params.dx;
+    y = ((0:params.Ny-1) - (params.Ny-1)/2)*params.dy;
+    radius = sqrt(x.^2 + y.^2);
+    mask = 0.5*(1-tanh((radius-params.seedRadius)/params.seedWidth));
+    mask = gpuArray(mask);
+    lattice = rotModeExpHex2D(params.A_ini,params.k_ini,params.theta, ...
+        params.Nx,params.Ny,params.dx,params.dy);
+    perturbation = mask.*lattice;
+    % n_init denotes the exact conserved spatial mean.
+    fields.n = params.n_init + perturbation - mean(perturbation(:));
+    fields.c = fields.c + params.c_init;
+elseif params.initialCondition == "uniform"
     fields.n = fields.n+params.n_init;
     fields.c = fields.c+params.c_init;
 % Initialize n with a mode expansion by initializing with amplitude A_ini,
