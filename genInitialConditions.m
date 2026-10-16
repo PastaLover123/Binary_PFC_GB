@@ -6,8 +6,26 @@ function [fields] = genInitialConditions(fields,params)
 if params.initialCondition == "sigma5"
     x = gpuArray(((0:params.Nx-1)' - floor(params.Nx/2))*params.dx);
     y = gpuArray(((0:params.Ny-1) - floor(params.Ny/2))*params.dy);
-    mask = 0.5*(1-tanh((abs(y)-params.Ny*params.dy/4)/params.gbWidth));
-    n1 = squareModes(x,y,params.theta_1,params);
+    Lx = params.Nx*params.dx; Ly = params.Ny*params.dy;
+    terrace = zeros(params.Nx,1, 'like', x);
+    uX = zeros(params.griddim, 'like', x);
+    lower = -Ly/4 + zeros(params.Nx,1, 'like', x);
+    upper = Ly/4;
+    if isfield(params,'disconnection') && params.disconnection.enabled
+        d = params.disconnection;
+        % Smooth periodic window between the two cores at x=+/-separation/2.
+        angle = pi*d.separation/Lx;
+        terrace = 0.5*(1+tanh((cos(2*pi*x/Lx)-cos(angle)) ...
+            /(sin(angle)*2*pi*d.coreWidth/Lx)));
+        lower = lower + d.stepHeight*terrace;
+        distance = (Ly/pi)*sin(pi*(y-lower)/Ly);
+        uX = d.burgers*terrace.*exp(-(distance/d.slipDecayLength).^2);
+    end
+    % Periodic central-grain mask between the possibly stepped lower GB and upper GB.
+    centre = (upper+lower)/2; halfWidth = (upper-lower)/2;
+    mask = 0.5*(1+tanh((cos(2*pi*(y-centre)/Ly)-cos(2*pi*halfWidth/Ly)) ...
+        ./(sin(2*pi*halfWidth/Ly)*2*pi*params.gbWidth/Ly)));
+    n1 = squareModes(x-uX,y,params.theta_1,params);
     n2 = squareModes(x,y,params.theta_2,params);
     n = mask.*n1 + (1-mask).*n2;
     fields.n = params.n_init + n - mean(n(:));
